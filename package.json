@@ -1,53 +1,39 @@
 {
   "name": "cnv-format",
-  "version": "0.1.0",
-  "description": "CNV Format - Next-gen offline presentation format + Electron player",
+  "version": "2.0.0",
+  "description": "CNV Format - Next-gen offline presentation format + runtime",
   "main": "player/main.js",
   "scripts": {
-    "generate": "node generator/cli.js",
-    "generate:sample": "node generator/create-sample.js",
-    "player": "electron player/main.js",
-    "player:dev": "electron player/main.js --dev",
-    "build:win": "electron-builder --win --dir",
-    "build:mac": "electron-builder --mac --dir",
-    "build:all": "electron-builder --win --mac --dir",
+    "generate": "node generator/create-sample.js",
+    "start": "electron player/main.js",
+    "play": "electron player/main.js samples/demo-presentation.cnv",
     "test": "node test/run-tests.js",
-    "lint": "eslint src/ generator/ player/"
+    "validate": "node tools/cli.js validate",
+    "info": "node tools/cli.js info"
   },
-  "keywords": ["cnv", "presentation", "offline", "canva", "format", "player"],
+  "keywords": [
+    "cnv",
+    "presentation",
+    "offline",
+    "canva",
+    "format",
+    "electron",
+    "svg"
+  ],
   "author": "ValeNaz",
   "license": "MIT",
   "dependencies": {
-    "archiver": "^7.0.0",
-    "jszip": "^3.10.1",
-    "sharp": "^0.33.0",
-    "crypto-js": "^4.2.0"
+    "archiver": "^6.0.0",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0",
-    "eslint": "^9.0.0"
+    "electron": "^28.0.0"
   },
-  "build": {
-    "appId": "com.cnv.player",
-    "productName": "CNV Player",
-    "files": [
-      "player/**/*",
-      "node_modules/**/*"
-    ],
-    "directories": {
-      "output": "dist"
-    },
-    "win": {
-      "target": ["dir"],
-      "icon": "assets/icon.ico"
-    },
-    "mac": {
-      "target": ["dir"],
-      "icon": "assets/icon.icns"
-    },
-    "portable": {
-      "artifactName": "CNVPlayer-Portable.exe"
-    }
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ValeNaz/cnv-format.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
