@@ -1,150 +1,119 @@
 # CNV Format
 
-> **Next-generation offline presentation format + runtime**
+**Next-generation offline presentation format + runtime.**
 
-CNV (.cnv) is an open container format for pixel-perfect offline presentations, designed as a "PDF for the presentation era." It packages scene graphs, video, audio, animations, and fonts into a single self-contained file, playable by a dedicated offline player.
+CNV is a portable, secure, and rich presentation format designed as a modern alternative to PDF/PPTX for offline use. Think of it as a "PDF of the future" — but built for interactive, animated presentations with pixel-perfect rendering.
 
-## Why CNV?
+## Features
 
-| Current Export | Problem |
-|---|---|
-| **PDF** | No animations, no video, no transitions |
-| **PPTX** | Broken effects, font substitution, wrong colors |
-| **MP4** | No interactivity, no slide navigation, huge files |
-| **GIF** | Low quality, no audio, size limits |
-
-**CNV solves all of these** — self-contained, pixel-perfect, interactive, portable.
-
----
-
-## Quick Start
-
-### Prerequisites
-- Node.js 20+ 
-- npm 10+
-
-### Install
-```bash
-git clone https://github.com/ValeNaz/cnv-format.git
-cd cnv-format
-npm install
-```
-
-### Generate a Sample Presentation
-```bash
-npm run generate:sample
-# Creates: samples/demo-presentation.cnv
-```
-
-### Open in the Player
-```bash
-npm run player -- samples/demo-presentation.cnv
-```
-
-### Player Controls
-| Key | Action |
-|-----|--------|
-| **→** / **Space** / **PageDown** | Next slide |
-| **←** / **PageUp** | Previous slide |
-| **Home** | First slide |
-| **End** | Last slide |
-| **F5** / **F** | Toggle fullscreen |
-| **Escape** | Exit fullscreen |
-| **Click right half** | Next slide |
-| **Click left half** | Previous slide |
-| **Swipe left** | Next slide (touch) |
-| **Swipe right** | Previous slide (touch) |
-
----
+- **ZIP-based container** with structured manifest, SVG pages, and embedded assets
+- **Vector-perfect rendering** via SVG slides with gradients, shapes, and text
+- **Per-element animations** (fade, slide, scale) with configurable delays
+- **Slide transitions** (fade, slideLeft, slideRight, zoomIn)
+- **Presenter notes** for each slide (toggle with N key)
+- **SHA-256 integrity verification** for every page
+- **Dark UI player** with thumbnail sidebar, progress bar, and keyboard shortcuts
+- **Touch/swipe support** for mobile devices
+- **Fullscreen presentation mode**
+- **Web fallback** — player works in browser without Electron (loads JSZip from CDN)
+- **CLI tools** for inspecting and validating .cnv files
+- **Automated test suite**
 
 ## Project Structure
 
 ```
 cnv-format/
-├── docs/
-│   ├── SPEC-v0.1.md               # Format specification
-│   └── CANVA-PARTNERSHIP-PROPOSAL.md  # Partnership pitch document
-├── generator/
-│   └── create-sample.js           # Sample .cnv file generator
-├── player/
-│   ├── main.js                    # Electron main process
-│   ├── preload.js                 # Preload with CNV parser
-│   └── renderer/
-│       └── index.html             # Player UI + scene graph renderer
-├── samples/                       # Generated .cnv sample files
-├── package.json                   # Dependencies and scripts
-└── README.md                      # This file
+  docs/
+    SPEC-v0.1.md                 # Format specification
+    CANVA-PARTNERSHIP-PROPOSAL.md # Canva partnership pitch
+  generator/
+    create-sample.js             # Generates a 7-slide demo .cnv file
+  player/
+    main.js                      # Electron main process
+    preload.js                   # CNV parser with integrity checks
+    renderer/
+      index.html                 # Player UI (dark theme, transitions, notes)
+  tools/
+    cli.js                       # CLI: info, validate, list, extract
+  test/
+    run-tests.js                 # Automated test suite
+  package.json
+  README.md
 ```
 
----
+## Quick Start
 
-## Format Overview
+```bash
+# Clone and install
+git clone https://github.com/ValeNaz/cnv-format.git
+cd cnv-format
+npm install
+
+# Generate a sample presentation
+node generator/create-sample.js
+
+# Open with the player
+npx electron player/main.js samples/demo-presentation.cnv
+
+# Or open in web mode (no Electron needed)
+# Just open player/renderer/index.html in a browser and load the .cnv file
+```
+
+## CLI Tools
+
+```bash
+# Show file info
+node tools/cli.js info samples/demo-presentation.cnv
+
+# Validate integrity
+node tools/cli.js validate samples/demo-presentation.cnv
+
+# List archive contents
+node tools/cli.js list samples/demo-presentation.cnv
+
+# Extract all files
+node tools/cli.js extract samples/demo-presentation.cnv
+```
+
+## Running Tests
+
+```bash
+node test/run-tests.js
+```
+
+## Keyboard Shortcuts (Player)
+
+| Key | Action |
+|-----|--------|
+| Arrow Right / Space | Next slide |
+| Arrow Left | Previous slide |
+| Home | First slide |
+| End | Last slide |
+| F | Toggle fullscreen |
+| N | Toggle presenter notes |
+| ? | Show keyboard shortcuts |
+| Esc | Exit fullscreen |
+
+## CNV File Format
 
 A .cnv file is a ZIP archive containing:
 
-```
-presentation.cnv
-├── META-INF/container.json    # Format version, page count
-├── META-INF/manifest.json     # SHA-256 hashes for all assets
-├── content/design.json        # Title, dimensions, page order
-├── content/pages/001/scene.json    # Scene graph per page
-├── content/pages/001/timeline.json # Animation timeline
-├── assets/images/*.webp       # Embedded images
-├── assets/video/*.mp4         # Embedded video (H.264)
-├── assets/fonts/*.woff2       # Subset fonts
-├── thumbnails/*.svg           # Page thumbnails
-└── fallback/*.svg             # Static fallbacks
-```
+- `manifest.json` — Metadata, page list, SHA-256 hashes, animation data
+- `pages/*.svg` — Vector slides (1920x1080, full scene graph)
+- `assets/*` — Embedded fonts (WOFF2), images, audio, video
 
-See [docs/SPEC-v0.1.md](docs/SPEC-v0.1.md) for the complete specification.
+See [docs/SPEC-v0.1.md](docs/SPEC-v0.1.md) for the full specification.
 
----
+## Canva Partnership
 
-## Key Features
-
-- **Scene Graph Rendering** — Elements positioned and styled from JSON scene descriptors
-- **Animation System** — Fade, slide, scale, rotate with configurable timing and easing
-- **Page Transitions** — Fade, slide, zoom, dissolve between pages
-- **Video/Audio** — Embedded H.264 video and MP3/AAC audio with autoplay
-- **Integrity Verification** — SHA-256 hashes on all assets, checked on load
-- **Kiosk Mode** — Fullscreen, auto-hiding controls, keyboard/touch navigation
-- **Portable** — Player runs from USB, no installation required
-- **Secure** — No executable code in format, Chromium sandbox in player
-
----
-
-## Documents for Canva Partnership
-
-This repo includes ready-to-present documents:
-
-1. **[Format Specification v0.1](docs/SPEC-v0.1.md)** — Complete technical spec for the .cnv format
-2. **[Partnership Proposal](docs/CANVA-PARTNERSHIP-PROPOSAL.md)** — Business case, architecture, roadmap, revenue model
-3. **Working MVP** — Functional generator + player demonstrating the concept
-
----
+This project includes a detailed partnership proposal for Canva to adopt .cnv as a native export format. See [docs/CANVA-PARTNERSHIP-PROPOSAL.md](docs/CANVA-PARTNERSHIP-PROPOSAL.md).
 
 ## Roadmap
 
-- [x] Format specification v0.1
-- [x] Sample .cnv generator
-- [x] Electron-based player with scene graph rendering
-- [x] Keyboard/mouse/touch navigation
-- [x] SHA-256 integrity verification
-- [x] Fullscreen and kiosk mode
-- [ ] Video/audio embedded playback
-- [ ] Page transitions with CSS animations
-- [ ] Presenter view (multi-monitor)
-- [ ] Digital signature verification (Ed25519)
-- [ ] Canva Connect API integration for auto-export
-- [ ] Windows/macOS portable builds
-- [ ] Mobile player (iOS/Android)
-
----
+- **MVP (current):** ZIP container, SVG renderer, Electron player, basic animations, CLI tools
+- **v1.0 (6 months):** Video/audio playback, font embedding, kiosk mode, auto-update
+- **v2.0 (12 months):** Canva SDK integration, DRM support, mobile apps, cloud sync
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
-
-## Contact
-
-**ValeNaz** — [github.com/ValeNaz](https://github.com/ValeNaz)
+MIT
