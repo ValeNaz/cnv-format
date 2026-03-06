@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CNV Player</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; color: #fff; font-family: -apple-system, 'Inter', 'Segoe UI', sans-serif; overflow: hidden; height: 100vh; width: 100vw; }
+    
+    /* Welcome Screen */
+    #welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%); }
+    #welcome h1 { font-size: 4rem; font-weight: 800; background: linear-gradient(90deg, #00d4ff, #00ff88); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 1rem; }
+    #welcome p { font-size: 1.2rem; color: #8892b0; margin-bottom: 2rem; }
+    #welcome .version { font-size: 0.8rem; color: #4a5568; margin-top: 2rem; }
+    .btn { padding: 16px 40px; font-size: 1.1rem; font-weight: 600; border: none; border-radius: 12px; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: linear-gradient(90deg, #00d4ff, #00ff88); color: #0f0f23; }
+    .btn-primary:hover { transform: scale(1.05); box-shadow: 0 0 30px rgba(0,212,255,0.3); }
+    
+    /* Presentation View */
+    #presentation { display: none; position: relative; width: 100vw; height: 100vh; background: #000; }
+    #slide-container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    #slide-canvas { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity 0.5s ease; }
+    
+    /* Scene Graph Renderer */
+    #scene-renderer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .scene-viewport { position: relative; overflow: hidden; }
+    .scene-element { position: absolute; transition: all 0.3s ease; }
+    .scene-element.text { display: flex; align-items: center; }
+    .scene-element.animating { transition: none; }
+    
+    /* Controls Overlay */
+    #controls { position: fixed; bottom: 0; left: 0; right: 0; padding: 20px; background: linear-gradient(transparent, rgba(0,0,0,0.8)); display: flex; align-items: center; justify-content: center; gap: 20px; opacity: 0; transition: opacity 0.3s; z-index: 100; }
+    #controls:hover, #controls.visible { opacity: 1; }
+    #controls button { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 1rem; transition: all 0.2s; }
+    #controls button:hover { background: rgba(255,255,255,0.25); }
+    #slide-counter { color: #8892b0; font-size: 0.9rem; min-width: 80px; text-align: center; }
+    
+    /* Progress Bar */
+    #progress-bar { position: fixed; top: 0; left: 0; height: 3px; background: linear-gradient(90deg, #00d4ff, #00ff88); transition: width 0.3s ease; z-index: 100; }
+    
+    /* Loading Screen */
+    #loading { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #0f0f23; flex-direction: column; align-items: center; justify-content: center; z-index: 200; }
+    #loading.active { display: flex; }
+    #loading h2 { font-size: 1.5rem; color: #00d4ff; margin-bottom: 1rem; }
+    .spinner { width: 40px; height: 40px; border: 3px solid #1a1a2e; border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    /* Integrity Warning */
+    .integrity-warning { position: fixed; top: 20px; right: 20px; background: #e94560; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 0.85rem; z-index: 300; animation: slideIn 0.3s ease; }
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    
+    /* Thumbnail Strip */
+    #thumb-strip { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; padding: 10px; background: rgba(0,0,0,0.7); border-radius: 12px; opacity: 0; transition: opacity 0.3s; z-index: 99; }
+    #thumb-strip:hover, #controls:hover ~ #thumb-strip { opacity: 1; }
+    .thumb { width: 120px; height: 68px; border-radius: 6px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; object-fit: cover; background: #1a1a2e; }
+    .thumb.active { border-color: #00d4ff; box-shadow: 0 0 10px rgba(0,212,255,0.4); }
+    .thumb:hover { border-color: rgba(255,255,255,0.5); transform: scale(1.05); }
+  </style>
+</head>
+<body>
+  <!-- Welcome Screen -->
+  <div id="welcome">
+    <h1>CNV Player</h1>
+    <p>Next-generation offline presentation player</p>
+    <button class="btn btn-primary" id="btn-open">Open .cnv File</button>
+    <div class="version">v0.1.0 — CNV Format Spec v0.1</div>
+  </div>
+  
+  <!-- Loading Screen -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <h2 id="loading-text">Loading presentation...</h2>
+  </div>
+  
+  <!-- Presentation View -->
+  <div id="presentation">
+    <div id="progress-bar"></div>
+    <div id="slide-container">
+      <div id="scene-renderer">
+        <div class="scene-viewport" id="scene-viewport"></div>
+      </div>
+      <img id="slide-canvas" alt="slide" style="display:none;">
+    </div>
+    <div id="thumb-strip"></div>
+    <div id="controls">
+      <button id="btn-prev" title="Previous (Left Arrow)">&#9664; Prev</button>
+      <span id="slide-counter">1 / 1</span>
+      <button id="btn-next" title="Next (Right Arrow)">Next &#9654;</button>
+      <button id="btn-fullscreen" title="Fullscreen (F5)">&#x26F6; Fullscreen</button>
+    </div>
+  </div>
+  
+  <script>
+    // --- State ---
+    let presentation = null;
+    let currentSlide = 0;
+    let totalSlides = 0;
+    
+    // --- DOM Elements ---
+    const welcomeEl = document.getElementById('welcome');
+    const presentationEl = document.getElementById('presentation');
+    const loadingEl = document.getElementById('loading');
+    const loadingText = document.getElementById('loading-text');
+    const slideCanvas = document.getElementById('slide-canvas');
+    const sceneViewport = document.getElementById('scene-viewport');
+    const sceneRenderer = document.getElementById('scene-renderer');
+    const slideCounter = document.getElementById('slide-counter');
+    const progressBar = document.getElementById('progress-bar');
+    const thumbStrip = document.getElementById('thumb-strip');
+    const btnOpen = document.getElementById('btn-open');
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    const btnFullscreen = document.getElementById('btn-fullscreen');
+    
+    // --- Functions ---
+    
+    function showLoading(msg) {
+      loadingText.textContent = msg || 'Loading presentation...';
+      loadingEl.classList.add('active');
+    }
+    
+    function hideLoading() { loadingEl.classList.remove('active'); }
+    
+    function showPresentation() {
+      welcomeEl.style.display = 'none';
+      presentationEl.style.display = 'block';
+      hideLoading();
+    }
+    
+    function updateProgress() {
+      const pct = totalSlides > 1 ? ((currentSlide) / (totalSlides - 1)) * 100 : 100;
+      progressBar.style.width = pct + '%';
+      slideCounter.textContent = (currentSlide + 1) + ' / ' + totalSlides;
+      // Update thumbnail active state
+      document.querySelectorAll('.thumb').forEach((t, i) => {
+        t.classList.toggle('active', i === currentSlide);
+      });
+    }
+    
+    function renderScene(page) {
+      sceneViewport.innerHTML = '';
+      if (!page || !page.scene) {
+        // Fallback to thumbnail image
+        if (page && page.thumbnail) {
+          slideCanvas.src = page.thumbnail;
+          slideCanvas.style.display = 'block';
+          sceneRenderer.style.display = 'none';
+        }
+        return;
+      }
+      
+      slideCanvas.style.display = 'none';
+      sceneRenderer.style.display = 'flex';
+      
+      const scene = page.scene;
+      const { width, height } = scene.dimensions;
+      
+      // Calculate viewport scale to fit screen
+      const scaleX = window.innerWidth / width;
+      const scaleY = window.innerHeight / height;
+      const scale = Math.min(scaleX, scaleY);
+      
+      sceneViewport.style.width = width + 'px';
+      sceneViewport.style.height = height + 'px';
+      sceneViewport.style.transform = 'scale(' + scale + ')';
+      sceneViewport.style.transformOrigin = 'center center';
+      
+      // Set background
+      if (scene.background) {
+        if (scene.background.type === 'solid') {
+          sceneViewport.style.background = scene.background.color;
+        } else if (scene.background.type === 'gradient') {
+          const stops = scene.background.stops.map(s => s.color + ' ' + (s.offset * 100) + '%').join(', ');
+          sceneViewport.style.background = 'linear-gradient(' + (scene.background.angle || 0) + 'deg, ' + stops + ')';
+        }
+      }
+      
+      // Render elements
+      for (const elem of scene.elements) {
+        const el = document.createElement('div');
+        el.className = 'scene-element ' + elem.type;
+        el.style.left = elem.position.x + 'px';
+        el.style.top = elem.position.y + 'px';
+        if (elem.size) {
+          el.style.width = elem.size.width + 'px';
+          el.style.height = elem.size.height + 'px';
+        }
+        el.style.opacity = elem.opacity || 1;
+        el.style.zIndex = elem.z_index || 0;
+        if (elem.rotation) el.style.transform = 'rotate(' + elem.rotation + 'deg)';
+        
+        if (elem.type === 'text' && elem.content) {
+          el.style.color = elem.content.font?.color || '#fff';
+          el.style.fontSize = (elem.content.font?.size || 24) + 'px';
+          el.style.fontWeight = elem.content.font?.weight || 400;
+          el.style.fontFamily = (elem.content.font?.family || 'Inter') + ', sans-serif';
+          el.style.textAlign = elem.content.alignment || 'left';
+          el.style.justifyContent = elem.content.alignment === 'center' ? 'center' : 'flex-start';
+          el.textContent = elem.content.text || '';
+        } else if (elem.type === 'image' && elem.content?.asset_ref) {
+          const assetUrl = presentation.assets[elem.content.asset_ref];
+          if (assetUrl) {
+            const img = document.createElement('img');
+            img.src = assetUrl;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = elem.content.fit || 'cover';
+            el.appendChild(img);
+          }
+        } else if (elem.type === 'video' && elem.content?.asset_ref) {
+          const assetUrl = presentation.assets[elem.content.asset_ref];
+          if (assetUrl) {
+            const video = document.createElement('video');
+            video.src = assetUrl;
+            video.style.width = '100%';
+            video.style.height = '100%';
+            video.style.objectFit = 'cover';
+            if (elem.content.autoplay) video.autoplay = true;
+            if (elem.content.loop) video.loop = true;
+            if (elem.content.muted) video.muted = true;
+            video.controls = false;
+            el.appendChild(video);
+          }
+        } else if (elem.type === 'shape' && elem.content) {
+          if (elem.content.fill?.type === 'solid') {
+            el.style.background = elem.content.fill.color;
+          }
+          if (elem.content.shape_type === 'circle') {
+            el.style.borderRadius = '50%';
+          }
+        }
+        
+        // Apply enter animations
+        if (elem.animations) {
+          const anim = elem.animations.find(a => a.trigger === 'on_enter');
+          if (anim) {
+            el.style.opacity = '0';
+            el.style.transform = (el.style.transform || '') + ' translateY(20px)';
+            setTimeout(() => {
+              el.style.transition = 'all ' + (anim.duration_ms || 500) + 'ms ' + (anim.easing || 'ease-out');
+              el.style.opacity = elem.opacity || 1;
+              el.style.transform = elem.rotation ? 'rotate(' + elem.rotation + 'deg)' : '';
+            }, anim.delay_ms || 0);
+          }
+        }
+        
+        sceneViewport.appendChild(el);
+      }
+    }
+    
+    function goToSlide(index) {
+      if (!presentation || index < 0 || index >= totalSlides) return;
+      currentSlide = index;
+      renderScene(presentation.pages[currentSlide]);
+      updateProgress();
+    }
+    
+    function nextSlide() { goToSlide(currentSlide + 1); }
+    function prevSlide() { goToSlide(currentSlide - 1); }
+    
+    function buildThumbnails() {
+      thumbStrip.innerHTML = '';
+      for (let i = 0; i < totalSlides; i++) {
+        const page = presentation.pages[i];
+        const thumb = document.createElement('img');
+        thumb.className = 'thumb' + (i === 0 ? ' active' : '');
+        thumb.src = page.thumbnail || '';
+        thumb.alt = 'Slide ' + (i + 1);
+        thumb.onclick = () => goToSlide(i);
+        if (!page.thumbnail) {
+          thumb.style.background = page.scene?.background?.color || '#1a1a2e';
+        }
+        thumbStrip.appendChild(thumb);
+      }
+    }
+    
+    async function openPresentation(filePath) {
+      showLoading('Opening presentation...');
+      try {
+        presentation = await window.cnvBridge.parseCNV(filePath);
+        totalSlides = presentation.pages.length;
+        currentSlide = 0;
+        
+        if (!presentation.integrityOk) {
+          const warn = document.createElement('div');
+          warn.className = 'integrity-warning';
+          warn.textContent = '⚠ Integrity check failed — file may have been modified';
+          document.body.appendChild(warn);
+          setTimeout(() => warn.remove(), 8000);
+        }
+        
+        document.title = (presentation.design.title || 'Untitled') + ' — CNV Player';
+        buildThumbnails();
+        showPresentation();
+        goToSlide(0);
+      } catch (err) {
+        hideLoading();
+        alert('Error opening CNV file: ' + err.message);
+        console.error(err);
+      }
+    }
+    
+    // --- Event Listeners ---
+    
+    btnOpen.addEventListener('click', async () => {
+      const filePath = await window.cnvBridge.openFileDialog();
+      if (filePath) openPresentation(filePath);
+    });
+    
+    btnPrev.addEventListener('click', prevSlide);
+    btnNext.addEventListener('click', nextSlide);
+    btnFullscreen.addEventListener('click', () => window.cnvBridge.toggleFullscreen());
+    
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      switch(e.key) {
+        case 'ArrowRight': case 'ArrowDown': case ' ': case 'PageDown':
+          e.preventDefault(); nextSlide(); break;
+        case 'ArrowLeft': case 'ArrowUp': case 'PageUp':
+          e.preventDefault(); prevSlide(); break;
+        case 'Home': goToSlide(0); break;
+        case 'End': goToSlide(totalSlides - 1); break;
+        case 'f': case 'F5': window.cnvBridge.toggleFullscreen(); break;
+        case 'Escape': window.cnvBridge.exitPresentation(); break;
+      }
+    });
+    
+    // Mouse: click right half = next, left half = prev
+    document.getElementById('slide-container').addEventListener('click', (e) => {
+      if (!presentation) return;
+      if (e.clientX > window.innerWidth / 2) nextSlide();
+      else prevSlide();
+    });
+    
+    // Touch support
+    let touchStartX = 0;
+    document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+    document.addEventListener('touchend', (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      if (Math.abs(dx) > 50) { dx < 0 ? nextSlide() : prevSlide(); }
+    });
+    
+    // Resize handler
+    window.addEventListener('resize', () => {
+      if (presentation) renderScene(presentation.pages[currentSlide]);
+    });
+    
+    // Show/hide controls on mouse move
+    let controlsTimeout;
+    document.addEventListener('mousemove', () => {
+      const controls = document.getElementById('controls');
+      controls.classList.add('visible');
+      clearTimeout(controlsTimeout);
+      controlsTimeout = setTimeout(() => controls.classList.remove('visible'), 3000);
+    });
+    
+    // --- IPC from Main Process ---
+    window.cnvBridge.onOpenCNV((filePath) => openPresentation(filePath));
+    window.cnvBridge.onShowWelcome(() => { /* already showing */ });
+    window.cnvBridge.onError((msg) => alert('Error: ' + msg));
+  </script>
+</body>
+</html>
