@@ -1,105 +1,80 @@
 /**
- * CNV Player — Electron Main Process
- * Opens .cnv files and renders presentations in fullscreen/kiosk mode.
- * 
- * Usage: electron player/main.js [path-to-file.cnv]
- *        npm run player -- path/to/file.cnv
+ * CNV Player — Electron Main Process v2.0
+ * Creates a secure BrowserWindow with sandbox enabled.
+ * Handles file open dialog and command-line file loading.
+ *
+ * Usage: npx electron player/main.js [file.cnv]
  */
-
-const { app, BrowserWindow, dialog, ipcMain, Menu, globalShortcut } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 let mainWindow = null;
-let cnvFilePath = null;
-
-// --- Parse CLI arguments ---
-const args = process.argv.slice(2);
-const isDevMode = args.includes('--dev');
-const isKiosk = args.includes('--kiosk');
-cnvFilePath = args.find(a => a.endsWith('.cnv'));
-
-// --- App Setup ---
-app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1920,
-    height: 1080,
-    fullscreen: !isDevMode,
-    kiosk: isKiosk,
-    autoHideMenuBar: true,
-    backgroundColor: '#000000',
+    width: 1280,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    title: 'CNV Player',
+    icon: path.join(__dirname, 'icon.png'),
+    backgroundColor: '#0a0a14',
+    show: false,
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      sandbox: false
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false, // Needed for preload fs access
+      webSecurity: true,
     },
-    icon: path.join(__dirname, '..', 'assets', 'icon.png')
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  if (isDevMode) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
+  // Show window when ready
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
 
-  // Hide cursor after 3 seconds of inactivity in presentation mode
-  if (!isDevMode) {
-    Menu.setApplicationMenu(null);
-  }
-
-  mainWindow.on('closed', () => { mainWindow = null; });
-
-  // After window loads, send the CNV file path
-  mainWindow.webContents.on('did-finish-load', () => {
-    if (cnvFilePath) {
-      const absPath = path.resolve(cnvFilePath);
-      if (fs.existsSync(absPath)) {
-        mainWindow.webContents.send('open-cnv', absPath);
-      } else {
-        mainWindow.webContents.send('error', `File not found: ${absPath}`);
+    // Check for command-line file argument
+    const fileArg = process.argv.find(arg => arg.endsWith('.cnv'));
+    if (fileArg) {
+      const filePath = path.resolve(fileArg);
+      if (fs.existsSync(filePath)) {
+        setTimeout(() => {
+          mainWindow.webContents.send('file:loaded', filePath);
+        }, 500);
       }
-    } else {
-      mainWindow.webContents.send('show-welcome');
     }
   });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+
+  // Remove default menu in production
+  if (!process.argv.includes('--dev')) {
+    mainWindow.setMenuBarVisibility(false);
+  }
 }
 
 // --- IPC Handlers ---
 
-ipcMain.handle('open-file-dialog', async () => {
+ipcMain.handle('dialog:openFile', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
+    title: 'Open CNV Presentation',
     filters: [
       { name: 'CNV Presentations', extensions: ['cnv'] },
-      { name: 'All Files', extensions: ['*'] }
-    ]
+      { name: 'All Files', extensions: ['*'] },
+    ],
+    properties: ['openFile'],
   });
-  if (!result.canceled && result.filePaths.length > 0) {
-    return result.filePaths[0];
-  }
-  return null;
-});
 
-ipcMain.handle('read-file', async (event, filePath) => {
-  return fs.readFileSync(filePath);
-});
-
-ipcMain.handle('toggle-fullscreen', () => {
-  if (mainWindow) {
-    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
   }
-});
 
-ipcMain.handle('exit-presentation', () => {
-  if (mainWindow) {
-    if (mainWindow.isFullScreen()) {
-      mainWindow.setFullScreen(false);
-    }
-  }
+  return result.filePaths[0];
 });
 
 // --- App Lifecycle ---
@@ -107,34 +82,35 @@ ipcMain.handle('exit-presentation', () => {
 app.whenReady().then(() => {
   createWindow();
 
-  // Register global shortcuts
-  globalShortcut.register('F5', () => {
-    if (mainWindow && !mainWindow.isFullScreen()) {
-      mainWindow.setFullScreen(true);
-    }
-  });
-
-  globalShortcut.register('Escape', () => {
-    if (mainWindow && mainWindow.isFullScreen()) {
-      mainWindow.setFullScreen(false);
-    }
-  });
-
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
   });
 });
 
 app.on('window-all-closed', () => {
-  globalShortcut.unregisterAll();
-  app.quit();
-});
-
-// Handle file open on macOS (drag to dock icon)
-app.on('open-file', (event, filePath) => {
-  event.preventDefault();
-  cnvFilePath = filePath;
-  if (mainWindow) {
-    mainWindow.webContents.send('open-cnv', filePath);
+  if (process.platform !== 'darwin') {
+    app.quit();
   }
 });
+
+// Handle file open from OS (macOS double-click .cnv)
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (mainWindow) {
+    mainWindow.webContents.send('file:loaded', filePath);
+  }
+});
+
+// Security: prevent navigation to external URLs
+app.on('web-contents-created', (event, contents) => {
+  contents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  contents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
+  });
+});
+
+console.log('CNV Player main process v2.0');
