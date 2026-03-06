@@ -1,0 +1,53 @@
+{
+  "name": "cnv-format",
+  "version": "0.1.0",
+  "description": "CNV Format - Next-gen offline presentation format + Electron player",
+  "main": "player/main.js",
+  "scripts": {
+    "generate": "node generator/cli.js",
+    "generate:sample": "node generator/create-sample.js",
+    "player": "electron player/main.js",
+    "player:dev": "electron player/main.js --dev",
+    "build:win": "electron-builder --win --dir",
+    "build:mac": "electron-builder --mac --dir",
+    "build:all": "electron-builder --win --mac --dir",
+    "test": "node test/run-tests.js",
+    "lint": "eslint src/ generator/ player/"
+  },
+  "keywords": ["cnv", "presentation", "offline", "canva", "format", "player"],
+  "author": "ValeNaz",
+  "license": "MIT",
+  "dependencies": {
+    "archiver": "^7.0.0",
+    "jszip": "^3.10.1",
+    "sharp": "^0.33.0",
+    "crypto-js": "^4.2.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "eslint": "^9.0.0"
+  },
+  "build": {
+    "appId": "com.cnv.player",
+    "productName": "CNV Player",
+    "files": [
+      "player/**/*",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": ["dir"],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": ["dir"],
+      "icon": "assets/icon.icns"
+    },
+    "portable": {
+      "artifactName": "CNVPlayer-Portable.exe"
+    }
+  }
+}
