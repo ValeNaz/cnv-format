@@ -111,92 +111,191 @@
     <div><kbd>&#8592;</kbd><kbd>&#8594;</kbd> Navigate <kbd>Space</kbd> Next <kbd>F</kbd> Fullscreen</div>
     <div style="margin-top:4px"><kbd>N</kbd> Notes <kbd>Home</kbd> First <kbd>End</kbd> Last <kbd>Esc</kbd> Exit</div>
   </div>
+
+  <!-- Load JSZip directly for browser/file:// usage -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script>
     const $=s=>document.querySelector(s);
     const $$=s=>document.querySelectorAll(s);
     let presentation=null,currentSlide=0,notesVisible=false,helpVisible=false,isFullscreen=false;
 
+    // --- Open File ---
     $('#btn-open').addEventListener('click',async()=>{
       try{
-        if(window.cnvAPI){const r=await window.cnvAPI.openFile();if(r){showLoading();await loadPresentation(r);}}
-        else{const input=document.createElement('input');input.type='file';input.accept='.cnv';input.onchange=async e=>{const f=e.target.files[0];if(f){showLoading();await loadPresentation(await f.arrayBuffer());}};input.click();}
+        if(window.cnvAPI&&window.cnvAPI.openFile){
+          // Electron mode: preload handles parsing, returns {manifest,pages,...}
+          const result=await window.cnvAPI.openFile();
+          if(result){
+            showLoading();
+            showPresentation(result);
+          }
+        } else {
+          // Browser mode: use File API + JSZip
+          const input=document.createElement('input');
+          input.type='file';
+          input.accept='.cnv,.zip';
+          input.onchange=async e=>{
+            const f=e.target.files[0];
+            if(!f) return;
+            showLoading();
+            try{
+              const arrayBuf=await f.arrayBuffer();
+              const parsed=await parseCNVFromArrayBuffer(arrayBuf);
+              showPresentation(parsed);
+            }catch(err){
+              alert('Failed to parse: '+err.message);
+              $('#loading').style.display='none';
+              $('#welcome').style.display='flex';
+            }
+          };
+          input.click();
+        }
       }catch(err){alert('Error: '+err.message);}
     });
 
-    function showLoading(){$('#welcome').style.display='none';$('#loading').style.display='flex';}
-    function setLoadProgress(p){$('#load-progress').style.width=p+'%';}
-
-    async function loadPresentation(data){
-      try{
-        setLoadProgress(20);
-        let parsed;
-        if(window.cnvAPI&&window.cnvAPI.parseCNV)parsed=await window.cnvAPI.parseCNV(data);
-        else parsed=await parseCNVWeb(data);
-        setLoadProgress(60);presentation=parsed;buildThumbnails();setLoadProgress(80);
-        $('#loading').style.display='none';$('#presentation').classList.add('active');
-        goToSlide(0);setLoadProgress(100);
-        if(presentation.manifest)document.title=presentation.manifest.title+' - CNV Player';
-      }catch(err){alert('Failed: '+err.message);$('#loading').style.display='none';$('#welcome').style.display='flex';}
+    function showLoading(){
+      $('#welcome').style.display='none';
+      $('#loading').style.display='flex';
+      $('#load-progress').style.width='20%';
     }
 
-    async function parseCNVWeb(buf){
-      if(typeof JSZip==='undefined')await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s);});
-      const zip=await JSZip.loadAsync(buf);
-      const manifest=JSON.parse(await zip.file('manifest.json').async('text'));
+    // --- Parse CNV from ArrayBuffer (browser mode) ---
+    async function parseCNVFromArrayBuffer(arrayBuffer){
+      if(typeof JSZip==='undefined'){
+        throw new Error('JSZip not loaded. Please use a server (e.g. npx serve) instead of file:// protocol.');
+      }
+      // JSZip.loadAsync accepts ArrayBuffer, Uint8Array, Blob, etc.
+      const uint8=new Uint8Array(arrayBuffer);
+      const zip=await JSZip.loadAsync(uint8);
+
+      const manifestFile=zip.file('manifest.json');
+      if(!manifestFile) throw new Error('Invalid CNV: missing manifest.json');
+
+      const manifest=JSON.parse(await manifestFile.async('text'));
+      if(!manifest.pages||!Array.isArray(manifest.pages)){
+        throw new Error('Invalid CNV: no pages in manifest');
+      }
+
       const pages=[];
-      for(const p of manifest.pages){const svg=await zip.file(p.file).async('text');pages.push({svg,notes:p.notes||'',transition:p.transition||{type:'fade',durationMs:600},elements:p.elements||[]});}
+      for(const p of manifest.pages){
+        const f=zip.file(p.file);
+        if(!f){
+          pages.push({svg:'<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="#1a1a2e"/><text x="960" y="540" text-anchor="middle" fill="#ff6b6b" font-size="32">Missing: '+p.file+'</text></svg>',notes:'',transition:{type:'fade',durationMs:600},elements:[]});
+          continue;
+        }
+        const svg=await f.async('text');
+        pages.push({
+          svg:svg,
+          notes:p.notes||'',
+          transition:p.transition||manifest.defaultTransition||{type:'fade',durationMs:600},
+          elements:p.elements||[]
+        });
+      }
       return{manifest,pages};
     }
 
-    function buildThumbnails(){
-      const sb=$('#sidebar');sb.innerHTML='';
-      presentation.pages.forEach((page,i)=>{const d=document.createElement('div');d.className='thumb-item'+(i===0?' active':'');d.innerHTML=page.svg+'<span class="thumb-number">'+(i+1)+'</span>';d.addEventListener('click',()=>goToSlide(i));sb.appendChild(d);});
+    // --- Show Presentation (from parsed data) ---
+    function showPresentation(parsed){
+      $('#load-progress').style.width='60%';
+      presentation=parsed;
+      buildThumbnails();
+      $('#load-progress').style.width='80%';
+      $('#loading').style.display='none';
+      $('#presentation').classList.add('active');
+      goToSlide(0);
+      $('#load-progress').style.width='100%';
+      if(presentation.manifest) document.title=presentation.manifest.title+' - CNV Player';
     }
 
+    // --- Thumbnails ---
+    function buildThumbnails(){
+      const sb=$('#sidebar');sb.innerHTML='';
+      presentation.pages.forEach((page,i)=>{
+        const d=document.createElement('div');
+        d.className='thumb-item'+(i===0?' active':'');
+        d.innerHTML=page.svg+'<span class="thumb-number">'+(i+1)+'</span>';
+        d.addEventListener('click',()=>goToSlide(i));
+        sb.appendChild(d);
+      });
+    }
+
+    // --- Slide Navigation ---
     function goToSlide(index){
-      if(!presentation||index<0||index>=presentation.pages.length)return;
+      if(!presentation||index<0||index>=presentation.pages.length) return;
       const page=presentation.pages[index];currentSlide=index;
       const trans=page.transition||{type:'fade',durationMs:600};
       const cls='slide-transition-'+(trans.type||'fade');
-      const canvas=$('#slide-canvas');canvas.innerHTML=page.svg;canvas.className='';void canvas.offsetWidth;canvas.classList.add(cls);
+      const canvas=$('#slide-canvas');
+      canvas.innerHTML=page.svg;
+      canvas.className='';
+      void canvas.offsetWidth;
+      canvas.classList.add(cls);
       $('#slide-counter').textContent=(index+1)+' / '+presentation.pages.length;
       const pct=presentation.pages.length>1?(index/(presentation.pages.length-1))*100:100;
       $('#progress-fill').style.width=pct+'%';
-      $$('.thumb-item').forEach((el,i)=>{el.classList.toggle('active',i===index);if(i===index)el.scrollIntoView({block:'nearest',behavior:'smooth'});});
+      $$('.thumb-item').forEach((el,i)=>{
+        el.classList.toggle('active',i===index);
+        if(i===index) el.scrollIntoView({block:'nearest',behavior:'smooth'});
+      });
       $('#notes-content').textContent=page.notes||'No notes for this slide.';
-      $('#btn-prev').disabled=index===0;$('#btn-next').disabled=index===presentation.pages.length-1;
+      $('#btn-prev').disabled=index===0;
+      $('#btn-next').disabled=index===presentation.pages.length-1;
       animateElements(page.elements);
     }
 
     function nextSlide(){if(presentation&&currentSlide<presentation.pages.length-1)goToSlide(currentSlide+1);}
     function prevSlide(){if(presentation&&currentSlide>0)goToSlide(currentSlide-1);}
 
+    // --- Element Animations ---
     function animateElements(elements){
-      if(!elements||!elements.length)return;
+      if(!elements||!elements.length) return;
       const vp=$('#scene-viewport');vp.innerHTML='';
       elements.forEach(el=>{
         const d=document.createElement('div');d.className='scene-element';
         d.style.left=(el.x/1920*100)+'%';d.style.top=(el.y/1080*100)+'%';
         d.style.width=(el.w/1920*100)+'%';d.style.height=(el.h/1080*100)+'%';
-        if(el.animation){const m={fadeIn:'elFadeIn',slideInLeft:'elSlideInLeft',slideInUp:'elSlideInUp',scaleIn:'elScaleIn',slideInRight:'elSlideInRight'};const n=m[el.animation.type]||'elFadeIn';d.style.animation=n+' '+(el.animation.durationMs||500)+'ms ease '+(el.animation.delayMs||0)+'ms forwards';}
+        if(el.animation){
+          const m={fadeIn:'elFadeIn',slideInLeft:'elSlideInLeft',slideInUp:'elSlideInUp',scaleIn:'elScaleIn',slideInRight:'elSlideInRight'};
+          const n=m[el.animation.type]||'elFadeIn';
+          d.style.animation=n+' '+(el.animation.durationMs||500)+'ms ease '+(el.animation.delayMs||0)+'ms forwards';
+        }
         vp.appendChild(d);
       });
     }
 
+    // --- Controls ---
     $('#btn-prev').addEventListener('click',prevSlide);
     $('#btn-next').addEventListener('click',nextSlide);
-    $('#btn-notes').addEventListener('click',()=>{notesVisible=!notesVisible;$('#notes-panel').classList.toggle('visible',notesVisible);$('#btn-notes').classList.toggle('active',notesVisible);});
+    $('#btn-notes').addEventListener('click',()=>{
+      notesVisible=!notesVisible;
+      $('#notes-panel').classList.toggle('visible',notesVisible);
+      $('#btn-notes').classList.toggle('active',notesVisible);
+    });
     $('#btn-fullscreen').addEventListener('click',toggleFullscreen);
-    $('#btn-help').addEventListener('click',()=>{helpVisible=!helpVisible;$('#keyboard-hint').classList.toggle('show',helpVisible);if(helpVisible)setTimeout(()=>{helpVisible=false;$('#keyboard-hint').classList.remove('show');},4000);});
-    $('#progress-track').addEventListener('click',e=>{if(!presentation)return;const r=e.currentTarget.getBoundingClientRect();goToSlide(Math.round((e.clientX-r.left)/r.width*(presentation.pages.length-1)));});
+    $('#btn-help').addEventListener('click',()=>{
+      helpVisible=!helpVisible;
+      $('#keyboard-hint').classList.toggle('show',helpVisible);
+      if(helpVisible) setTimeout(()=>{helpVisible=false;$('#keyboard-hint').classList.remove('show');},4000);
+    });
+    $('#progress-track').addEventListener('click',e=>{
+      if(!presentation) return;
+      const r=e.currentTarget.getBoundingClientRect();
+      goToSlide(Math.round((e.clientX-r.left)/r.width*(presentation.pages.length-1)));
+    });
 
     function toggleFullscreen(){
-      if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{});document.body.classList.add('fullscreen');isFullscreen=true;}
-      else{document.exitFullscreen().catch(()=>{});document.body.classList.remove('fullscreen');isFullscreen=false;}
+      if(!document.fullscreenElement){
+        document.documentElement.requestFullscreen().catch(()=>{});
+        document.body.classList.add('fullscreen');isFullscreen=true;
+      } else {
+        document.exitFullscreen().catch(()=>{});
+        document.body.classList.remove('fullscreen');isFullscreen=false;
+      }
     }
 
+    // --- Keyboard ---
     document.addEventListener('keydown',e=>{
-      if(!presentation)return;
+      if(!presentation) return;
       switch(e.key){
         case'ArrowRight':case' ':case'PageDown':e.preventDefault();nextSlide();break;
         case'ArrowLeft':case'PageUp':e.preventDefault();prevSlide();break;
@@ -209,11 +308,16 @@
       }
     });
 
+    // --- Touch ---
     let touchStartX=0;
     document.addEventListener('touchstart',e=>{touchStartX=e.changedTouches[0].screenX;},{passive:true});
     document.addEventListener('touchend',e=>{const dx=e.changedTouches[0].screenX-touchStartX;if(Math.abs(dx)>50){dx>0?prevSlide():nextSlide();}},{passive:true});
 
-    if(window.cnvAPI&&window.cnvAPI.onFileLoaded){window.cnvAPI.onFileLoaded(async data=>{showLoading();await loadPresentation(data);});}
+    // --- Electron auto-load ---
+    if(window.cnvAPI&&window.cnvAPI.onFileLoaded){
+      window.cnvAPI.onFileLoaded(async data=>{showLoading();showPresentation(data);});
+    }
+
     console.log('CNV Player v2.0 initialized');
   </script>
 </body>
